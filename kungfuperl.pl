@@ -1,6 +1,144 @@
 
 use Test::More;
 
+sub replace_relational {
+	my ($expr) = @_;
+	
+	my $op = ($expr =~ />/) ? '>' : '<';
+	my @parts = split / $op /, $expr;
+	my $rhs = $parts[1];
+	
+	if ($rhs =~ /[a-zA-Z]/) {
+		$rhs = '$'.$rhs;
+	}
+	
+	return "if (\$$parts[0] $op $rhs) {";
+}
+
+sub replace_no_op {
+	my ($expr) = @_;
+	
+	my @parts = split / /, $expr;
+	
+	return "if (\$$parts[0] eq '$parts[1]') {";
+}
+
+sub replace_ne {
+	my ($expr) = @_;
+	
+	my @parts = split / ne /, $expr;
+	
+	return "if (\$$parts[0] ne '$parts[1]') {";
+}
+
+sub replace_i {
+	my ($expr) = @_;
+	
+	my $line;
+	
+	if ($expr =~ />|</) {
+		$line = replace_relational($expr);
+	}
+	else {
+		if ($expr =~ / ne /) {
+			$line = replace_ne($expr);
+		}
+		else {
+			$line = replace_no_op($expr);
+		}
+	}
+	
+	return $line;
+}
+
+sub replace_m {
+	my ($expr) = @_;
+	
+	my @parts = split / /, $expr;
+	
+	my $rhs = $parts[1];
+	
+	if ($rhs =~ /[a-zA-Z]/) {
+		# 'm var1 val1' => 'my $var1 = \'val1\';'
+		return "my \$$parts[0] = '$rhs';";
+	}
+	
+	# 'm var1 10' => 'my $var1 = 10;'
+	return "my \$$parts[0] = $rhs;";
+}
+
+# Do single line replacements - these only impact
+# the line on which the command is done
+sub replace_singles {
+	my ($bef) = @_;
+	
+	my $aft = [];
+		
+	for my $line (@$bef) {
+		if ($line =~ /^p (.*)/) {
+			my $expr = $1;
+			
+			$line = "print \"$expr\\n\";";
+		}
+		
+		if ($line =~ /^a (.*)/) {
+			my $arg = join ', $', split /\s+/, $1;
+			
+			$line = 'my ($'.$arg.') = @_;';
+		}
+		
+		if ($line =~ /^i (.*)/) {
+			my $expr = $1;
+			
+			$line = replace_i($expr);
+		}
+		
+		if ($line =~ /^r (.*)/) {
+			my $expr = $1;
+			
+			$line = "return \$$expr;";
+		}
+		
+		if ($line =~ /^m (.*)/) {
+			my $expr = $1;
+			
+			$line = replace_m($expr);
+		}
+		
+		push @$aft, $line;
+	}
+	
+	return $aft;
+}
+
+sub test_replace_singles {
+	my $bef = [
+		'p hello',
+		'a val1 val2',
+		'i x > y',
+		'i x > 10',
+		'i x str',
+		'i x ne str',
+		'r val',
+		'm var1 val1',
+		'm var1 10',
+	];
+	
+	my $exp = [
+		'print "hello\n";',
+		'my ($val1, $val2) = @_;',
+		'if ($x > $y) {',
+		'if ($x > 10) {',
+		'if ($x eq \'str\') {',
+		'if ($x ne \'str\') {',
+		'return $val;',
+		'my $var1 = \'val1\';',
+		'my $var1 = 10;',
+	];
+	
+	is_deeply(replace_singles($bef), $exp, 'test_replace_singles');
+}
+
 sub replace_s {
 	my ($bef) = @_;
 	
@@ -56,16 +194,16 @@ sub test_replace_s {
 		's subname',
 		'	somecode',
 		'',
-		'sub nextsub() {',
+		'sub nextsub {',
 		'}',
 	];
 	
 	my $exp = [
-		'sub subname() {',
+		'sub subname {',
 		'	somecode',
 		'}',
 		'',
-		'sub nextsub() {',
+		'sub nextsub {',
 		'}',
 	];
 	
@@ -137,15 +275,16 @@ sub action_any_commands() {
 	}
 }
 
-while (1) {
-	print("Looking for commands...");
-	action_any_commands();
-	sleep(1);
-}
+#while (1) {
+#	print("Looking for commands...");
+#	action_any_commands();
+#	sleep(1);
+#}
 
-#test_replace_s();
+test_replace_s();
+test_replace_singles();
 
-#done_testing;
+done_testing;
 
 1;
 
