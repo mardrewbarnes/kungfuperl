@@ -67,45 +67,72 @@ sub replace_m {
 	return "my \$$parts[0] = $rhs;";
 }
 
+sub remove_indent {
+	my ($line) = @_;
+	
+	my $ind = '';
+	
+	while ($line =~ /^(\s+)/) {
+		$ind = $1;
+		$line =~ s/^(\s+)//g;
+	}
+	
+	return ($line, $ind);
+}
+
 # Do single line replacements - these only impact
 # the line on which the command is done
 sub replace_singles {
 	my ($bef) = @_;
 	
 	my $aft = [];
-		
+	my $had_action = 0;
+	
 	for my $line (@$bef) {
+		my $ind;
+		($line, $ind) = remove_indent($line);
+		print "Got [$line] [$ind]\n";
 		if ($line =~ /^p (.*)/) {
 			my $expr = $1;
 			
 			$line = "print \"$expr\\n\";";
+			$had_action = 1;
 		}
 		
 		if ($line =~ /^a (.*)/) {
 			my $arg = join ', $', split /\s+/, $1;
 			
 			$line = 'my ($'.$arg.') = @_;';
+			$had_action = 1;
 		}
 		
 		if ($line =~ /^i (.*)/) {
 			my $expr = $1;
 			
 			$line = replace_i($expr);
+			$had_action = 1;
 		}
 		
 		if ($line =~ /^r (.*)/) {
 			my $expr = $1;
 			
 			$line = "return \$$expr;";
+			$had_action = 1;
 		}
 		
 		if ($line =~ /^m (.*)/) {
 			my $expr = $1;
 			
 			$line = replace_m($expr);
+			$had_action = 1;
 		}
 		
-		push @$aft, $line;
+		print "Pushing [${ind}${line}]\n";
+		push @$aft, $ind.$line;
+	}
+	
+	if (not $had_action) {
+		return undef;
 	}
 	
 	return $aft;
@@ -122,6 +149,8 @@ sub test_replace_singles {
 		'r val',
 		'm var1 val1',
 		'm var1 10',
+		"\t".'m var1 10',
+		"\t\t".'m var1 10',
 	];
 	
 	my $exp = [
@@ -134,6 +163,8 @@ sub test_replace_singles {
 		'return $val;',
 		'my $var1 = \'val1\';',
 		'my $var1 = 10;',
+		"\t".'my $var1 = 10;',
+		"\t\t".'my $var1 = 10;',
 	];
 	
 	is_deeply(replace_singles($bef), $exp, 'test_replace_singles');
@@ -151,7 +182,7 @@ sub replace_s {
 		
 		if ($line =~ /^\S/) {
 			if ($in_sub) {
-				while ($sub_lines->[-1] =~ /^\s*$/) {
+				while (@$sub_lines and $sub_lines->[-1] =~ /^\s*$/) {
 					pop @$sub_lines;
 				}
 				
@@ -267,19 +298,34 @@ sub action_any_commands() {
 		close FILE;
 		
 		my $replaced = replace_s($lines);
+		my $replaced_singles;
 		
-		if ($replaced) {
+		if (not $replaced) {
+			$replaced = $lines;
+		}
+		
+		$replaced_singles = replace_singles($replaced);	
+		
+		if (not $replaced_singles) {
+			$replaced_singles = $replaced;
+		}
+		
+		if ($replaced_singles != $lines) {
 			backup_file($file, $lines);
-			write_replaced_file($file, $replaced);
+			write_replaced_file($file, $replaced_singles);
 		}
 	}
 }
 
-#while (1) {
-#	print("Looking for commands...");
-#	action_any_commands();
-#	sleep(1);
-#}
+sub run {
+	while (1) {
+		print("Looking for commands...");
+		action_any_commands();
+		sleep(1);
+	}
+}
+
+run();
 
 test_replace_s();
 test_replace_singles();
