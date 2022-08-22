@@ -1,4 +1,4 @@
-
+use strict;
 use Test::More;
 
 sub replace_relational {
@@ -88,10 +88,11 @@ sub replace_singles {
 	my $aft = [];
 	my $had_action = 0;
 	
-	for my $line (@$bef) {
+	for my $orig_line (@$bef) {
 		my $ind;
+		my $line = $orig_line;
 		($line, $ind) = remove_indent($line);
-		print "Got [$line] [$ind]\n";
+		
 		if ($line =~ /^p (.*)/) {
 			my $expr = $1;
 			
@@ -127,7 +128,6 @@ sub replace_singles {
 			$had_action = 1;
 		}
 		
-		print "Pushing [${ind}${line}]\n";
 		push @$aft, $ind.$line;
 	}
 	
@@ -174,7 +174,7 @@ sub replace_s {
 	my ($bef) = @_;
 	
 	my $aft = [];
-	my $is_sub = 0;
+	my $in_sub = 0;
 	my $had_action = 0;
 	my $sub_lines = [];
 	
@@ -298,18 +298,19 @@ sub action_any_commands() {
 		close FILE;
 		
 		my $replaced = replace_s($lines);
+
 		my $replaced_singles;
 		
 		if (not $replaced) {
 			$replaced = $lines;
 		}
 		
-		$replaced_singles = replace_singles($replaced);	
+		$replaced_singles = replace_singles($replaced);			
 		
 		if (not $replaced_singles) {
 			$replaced_singles = $replaced;
 		}
-		
+
 		if ($replaced_singles != $lines) {
 			backup_file($file, $lines);
 			write_replaced_file($file, $replaced_singles);
@@ -318,6 +319,11 @@ sub action_any_commands() {
 }
 
 sub run {
+	if (grep /--once/, @ARGV) {
+		action_any_commands();
+		exit;
+	}
+	
 	while (1) {
 		print("Looking for commands...");
 		action_any_commands();
