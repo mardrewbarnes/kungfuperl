@@ -1,5 +1,40 @@
+# Ideas
+# csa - call sub and args combined
+# r should behave like m - so r 100 should resolve to return 100;
+# mr - combine my and return e.g. mr res [] will create my $res = [] at the
+# top of the sub and put return $res; at the bottom
+# Then we can do:
+# csamr - call sub and args combined then add my and res 
+# f item items -> resolves to for my $item (@$items) {
+# fa item items -> resolves to my ($items) = @_; then for my $item (@$items)
+# sfa get_items item items -> resolves to sub get_items { my ($items) = @_; for my $item (@$items) }
+# etc
+
 use strict;
 use Test::More;
+
+sub replace_c {
+	my ($cargs) = @_;
+	
+	# e.g. $args = 'subname arg'
+	my @args = split /\s+/, $cargs;
+	my $subname = shift @args;
+	
+	my $line = $subname.'(';
+	my $arglist = '';
+	
+	for my $arg (@args) {
+		if (length($arglist) > 0) {
+			$arglist .= ', ';
+		}
+		
+		$arglist .= '$'.$arg;
+	}
+	
+	$line .= $arglist.');';
+	
+	return $line;
+}
 
 sub replace_relational {
 	my ($expr) = @_;
@@ -128,6 +163,12 @@ sub replace_singles {
 			$had_action = 1;
 		}
 		
+		if ($line =~ /^c (.*)/) {
+			my $cargs = $1;
+			$line = replace_c($cargs);
+			$had_action = 1;
+		}
+		
 		push @$aft, $ind.$line;
 	}
 	
@@ -151,6 +192,8 @@ sub test_replace_singles {
 		'm var1 10',
 		"\t".'m var1 10',
 		"\t\t".'m var1 10',
+		'c subname var',
+		"\tc subname var",
 	];
 	
 	my $exp = [
@@ -165,9 +208,20 @@ sub test_replace_singles {
 		'my $var1 = 10;',
 		"\t".'my $var1 = 10;',
 		"\t\t".'my $var1 = 10;',
+		'subname($var);',
+		"\t".'subname($var);',
 	];
 	
 	is_deeply(replace_singles($bef), $exp, 'test_replace_singles');
+}
+
+sub get_args_line {
+	my ($args) = @_;
+	
+	my $arg = join ', $', split /\s+/, $args;
+	my $line = 'my ($'.$arg.') = @_;';
+	
+	return $line;
 }
 
 sub replace_s {
@@ -197,19 +251,32 @@ sub replace_s {
 			}
 		}
 		
-		if ($line =~ /^s (.*)/) {
+		if ($line =~ /^s(a?) (\S+)( (.*))?/) {
 			print ("Actioning $line\n");
-			my $subname = $1;
+			my $add_args = $1;
+			my $subname = $2;
+			my $args_str = $4;
+			
 			$line = "sub $subname {";
+			push @$sub_lines, $line;
+			
+			if ($add_args eq 'a') {
+				my $args_line = get_args_line($args_str);
+				$args_line = "\t".$args_line;
+				
+				push @$sub_lines, $args_line;
+			}
+			
 			$in_sub = 1;
 			$had_action = 1;
 		}
-
-		if ($in_sub) {
-			push @$sub_lines, $line;
-		}
 		else {
-			push @$aft, $line;
+			if ($in_sub) {
+				push @$sub_lines, $line;
+			}
+			else {
+				push @$aft, $line;
+			}
 		}
 	}
 	
@@ -239,6 +306,31 @@ sub test_replace_s {
 	];
 	
 	is_deeply(replace_s($bef), $exp, 'test_replace_s');
+}
+
+sub test_replace_sa {
+	my $bef = [
+		'sa subname arg',
+		'	somecode',
+		'',
+		'sub nextsub {',
+		'}',
+	];
+	
+	my $exp = [
+		'sub subname {',
+		'	my ($arg) = @_;',
+		'	somecode',
+		'}',
+		'',
+		'sub nextsub {',
+		'}',
+	];
+	
+	my $replaced = replace_s($bef);
+	use Data::Dumper;
+	print Dumper $replaced;
+	is_deeply($replaced, $exp, 'test_replace_sa');
 }
 
 sub backup_file {
@@ -334,10 +426,10 @@ sub run {
 run();
 
 test_replace_s();
+test_replace_sa();
 test_replace_singles();
 
 done_testing;
 
 1;
-
 
